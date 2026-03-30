@@ -14,12 +14,13 @@
 4. [Fluent Builder Design](#4-fluent-builder-design)
 5. [Exporter Architecture](#5-exporter-architecture)
 6. [MVP-2 Architecture: Delivery & Queue Abstractions](#6-mvp-2-architecture-delivery--queue-abstractions)
-7. [NuGet Package Boundary Design](#7-nuget-package-boundary-design)
-8. [Extensibility Map](#8-extensibility-map)
-9. [Error Handling & Validation Strategy](#9-error-handling--validation-strategy)
-10. [Testing Architecture](#10-testing-architecture)
-11. [Integration Guidance for Consumers](#11-integration-guidance-for-consumers)
-12. [Decision Log (ADRs)](#12-decision-log-adrs)
+7. [ReportTemplate: Reusable Report Shapes](#7-reporttemplate-reusable-report-shapes)
+8. [NuGet Package Boundary Design](#8-nuget-package-boundary-design)
+9. [Extensibility Map](#9-extensibility-map)
+10. [Error Handling & Validation Strategy](#10-error-handling--validation-strategy)
+11. [Testing Architecture](#11-testing-architecture)
+12. [Integration Guidance for Consumers](#12-integration-guidance-for-consumers)
+13. [Decision Log (ADRs)](#13-decision-log-adrs)
 
 ---
 
@@ -1041,7 +1042,375 @@ MVP-1 Consumer                        MVP-2 Consumer
 
 ---
 
-## 7. Appendix: Decision Log
+## 7. ReportTemplate: Reusable Report Shapes
+
+### 7.1 The Problem
+
+The current builder API is one-shot: you define columns, bind data, register exporters, and generate — all in one chain. This is fine when the report shape changes every time. But in practice, most reports are **structurally stable** — the same columns appear repeatedly with different data:
+
+- Monthly sales report: same 6 columns, different month's data each time
+- Multi-tenant compliance audit: same shape, different tenant data per request
+- Scheduled exports: same report definition, different date ranges
+
+Without a template concept, the consumer duplicates the entire column definition everywhere they generate the same report:
+
+```csharp
+// Repeated in every controller/service/worker that generates this report
+await Report.Create("Monthly Sales")
+    .From(marchData)       // only this changes
+    .AddColumn("Product", x => x.Product)     // duplicated
+    .AddColumn("Revenue", x => x.Revenue)     // duplicated
+    .AddColumn("Units", x => x.Units)         // duplicated
+    .AddColumn("Region", x => x.Region)       // duplicated
+    .ToCsv("sales-march.csv")
+    .GenerateAsync();
+```
+
+This duplication is a maintenance hazard. When a column is added or renamed, every call site must be updated. If one is missed, reports silently diverge.
+
+### 7.2 The Concept: Separate Shape from Data
+
+A `ReportTemplate<T>` captures the **shape** of a report — title and columns — as an immutable, reusable object. Data is bound later via `.From()`, which produces a standard `IReportBuilder<T>` for export configuration and execution.
+
+```
+Define Once (startup / DI)              Use Many Times (per request / per schedule)
+┌─────────────────────────────┐         ┌─────────────────────────────────────┐
+│ ReportTemplate.Define<T>()  │         │ template.From(data)                 │
+│   .AddColumn(...)           │         │   .ToCsv("path")                    │
+│   .AddColumn(...)           │         │   .GenerateAsync()                  │
+│   .Build()                  │         │                                     │
+│   → ReportTemplate<T>       │ ──────▸ │ template.From(otherData)            │
+│     (immutable, reusable,   │         │   .ToExcel("path")                  │
+│      thread-safe)           │         │   .GenerateAsync()                  │
+└─────────────────────────────┘         └─────────────────────────────────────┘
+```
+
+### 7.3 Core Types
+
+```csharp
+namespace ReportGen.Core;
+
+/// <summary>
+/// Immutable, reusable report shape. Thread-safe — can be shared across requests.
+/// </summary>
+/// <typeparam name="T">The row data type this template is designed for.</typeparam>
+public sealed class ReportTemplate<T>
+{
+    public string Title { get; }
+    public IReadOnlyList<ColumnDefinition<T>> Columns { get; }
+
+    internal ReportTemplate(string title, IReadOnlyList<ColumnDefinition<T>> columns)
+    {
+        Title = title;
+        Columns = columns;
+    }
+
+    /// <summary>
+    /// Binds data to this template, producing a new builder.
+    /// The template is NOT modified — each call returns an independent builder.
+    /// </summary>
+    public IReportBuilder<T> From(IEnumerable<T> data)
+        => From(data, title: null);
+
+    /// <summary>
+    /// Binds data with a title override (e.g., "Monthly Sales — March 2026").
+    /// </summary>
+    public IReportBuilder<T> From(IEnumerable<T> data, string? title)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        var effectiveTitle = string.IsNullOrWhiteSpace(title) ? Title : title;
+        var builder = new ReportBuilder<T>(effectiveTitle, data);
+        foreach (var column in Columns)
+            builder.AddColumn(column.Header, column.Accessor);
+        return builder;
+    }
+}
+```
+
+```csharp
+namespace ReportGen.Core;
+
+/// <summary>
+/// Fluent builder for constructing an immutable ReportTemplate.
+/// </summary>
+public interface IReportTemplateBuilder<T>
+{
+    IReportTemplateBuilder<T> AddColumn(string header, Func<T, object?> accessor);
+    ReportTemplate<T> Build();
+}
+```
+
+```csharp
+namespace ReportGen.Core;
+
+/// <summary>
+/// Entry point for defining reusable report templates.
+/// </summary>
+public static class ReportTemplate
+{
+    public static IReportTemplateBuilder<T> Define<T>(string title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        return new ReportTemplateBuilder<T>(title);
+    }
+}
+```
+
+```csharp
+namespace ReportGen.Core.Internal;
+
+internal sealed class ReportTemplateBuilder<T> : IReportTemplateBuilder<T>
+{
+    private readonly string _title;
+    private readonly List<ColumnDefinition<T>> _columns = [];
+    private int _columnOrder;
+
+    internal ReportTemplateBuilder(string title) => _title = title;
+
+    public IReportTemplateBuilder<T> AddColumn(string header, Func<T, object?> accessor)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(header);
+        ArgumentNullException.ThrowIfNull(accessor);
+        _columns.Add(new ColumnDefinition<T>(header, accessor, _columnOrder++));
+        return this;
+    }
+
+    public ReportTemplate<T> Build()
+    {
+        if (_columns.Count == 0)
+            throw new InvalidOperationException("At least one column must be defined.");
+
+        return new ReportTemplate<T>(
+            _title,
+            _columns.OrderBy(c => c.Order).ToList().AsReadOnly());
+    }
+}
+```
+
+### 7.4 Design Rationale
+
+#### Why `ReportTemplate.Define<T>()` requires an explicit generic parameter
+
+Unlike the builder's `Report.Create("Title").From(users)` where `T` is inferred from the data, the template has no data at definition time. The consumer must specify `<T>` explicitly:
+
+```csharp
+var template = ReportTemplate.Define<SalesRecord>("Monthly Sales")
+    .AddColumn("Product", x => x.Product)
+    .Build();
+```
+
+This is intentional. A template is a deliberate, upfront design decision — "I am defining the shape of a SalesRecord report." The explicit `<SalesRecord>` is a feature, not a limitation. It communicates intent and aids discoverability.
+
+**Alternative considered — infer `T` from a sample `IEnumerable<T>`:** Rejected. Requiring data just for type inference defeats the purpose. The template must be definable without data.
+
+#### Why templates are immutable and thread-safe
+
+`ReportTemplate<T>` has no mutable state. `Title` and `Columns` are set once via `internal` constructor. `IReadOnlyList<ColumnDefinition<T>>` is a frozen snapshot. `ColumnDefinition<T>` is a `record` (value semantics, immutable).
+
+This means:
+- A template can be registered as a **singleton** in DI and shared across all requests.
+- Multiple threads can call `.From(data)` concurrently — each call creates an independent `ReportBuilder<T>` with no shared mutable state.
+- No locks, no `ConcurrentDictionary`, no thread-safety bugs.
+
+This is critical for ASP.NET Core where request-scoped objects are the norm, but a report shape is application-scoped.
+
+#### Why templates don't carry exporters
+
+Consider these two reports from the same template:
+
+```csharp
+await salesTemplate.From(marchData).ToCsv("sales-march.csv").GenerateAsync();
+await salesTemplate.From(marchData).ToExcel("sales-march.xlsx").GenerateAsync();
+```
+
+The export format and destination **vary per invocation**. File paths, streams, and delivery targets are runtime decisions — not part of the report's structural identity.
+
+If the template carried exporters, every `.From()` would inherit them, and the consumer would need a way to remove or override them. This creates a confusing precedence model ("did the template's exporter run? did I accidentally add a duplicate?").
+
+**Rule: Templates define shape (what columns). Builders define execution (what format, where).**
+
+If a consumer wants standardized export pipelines, they write a helper method:
+
+```csharp
+// Consumer's convention — not in ReportGen
+public static async Task ExportStandardAsync<T>(
+    ReportTemplate<T> template, IEnumerable<T> data, string basePath)
+{
+    await template.From(data)
+        .ToCsv($"{basePath}.csv")
+        .ToExcel($"{basePath}.xlsx")
+        .GenerateAsync();
+}
+```
+
+#### Title override via `.From(data, title)`
+
+Templates have a default title ("Monthly Sales"), but individual executions often need a variation ("Monthly Sales — March 2026"). The optional `title` parameter on `.From()` handles this without requiring a separate `.WithTitle()` method on the builder:
+
+```csharp
+await salesTemplate
+    .From(marchData, "Monthly Sales — March 2026")
+    .ToCsv("sales-march-2026.csv")
+    .GenerateAsync();
+```
+
+If `title` is null or whitespace, the template's default title is used. Simple, no surprises.
+
+### 7.5 Real-World Use Cases
+
+#### Scheduled reports with different date ranges
+
+```csharp
+// Defined once at application startup
+var salesTemplate = ReportTemplate.Define<SalesRecord>("Monthly Sales")
+    .AddColumn("Product", x => x.Product)
+    .AddColumn("Revenue", x => x.Revenue)
+    .AddColumn("Units", x => x.Units)
+    .AddColumn("Region", x => x.Region)
+    .Build();
+
+// March
+var marchData = await db.Sales.Where(s => s.Month == 3).ToListAsync();
+await salesTemplate.From(marchData, "Monthly Sales — March 2026")
+    .ToCsv("reports/sales-march.csv")
+    .GenerateAsync();
+
+// April — same shape, different data, different title
+var aprilData = await db.Sales.Where(s => s.Month == 4).ToListAsync();
+await salesTemplate.From(aprilData, "Monthly Sales — April 2026")
+    .ToCsv("reports/sales-april.csv")
+    .GenerateAsync();
+```
+
+#### Multi-tenant compliance (ASP.NET Core singleton)
+
+```csharp
+// Startup / DI registration
+services.AddSingleton(
+    ReportTemplate.Define<AuditEntry>("Compliance Audit")
+        .AddColumn("Timestamp", x => x.Timestamp)
+        .AddColumn("Action", x => x.Action)
+        .AddColumn("User", x => x.UserId)
+        .AddColumn("Resource", x => x.Resource)
+        .Build());
+
+// Controller — injected template, per-tenant data
+public class AuditController(ReportTemplate<AuditEntry> auditTemplate, IAuditRepo repo)
+    : ControllerBase
+{
+    [HttpGet("{tenantId}/audit.csv")]
+    public async Task<IActionResult> Download(string tenantId, CancellationToken ct)
+    {
+        var data = await repo.GetByTenantAsync(tenantId, ct);
+        var stream = new MemoryStream();
+        await auditTemplate.From(data, $"Audit — {tenantId}")
+            .AddExporter(new CsvStreamExporter(stream))  // stream-based exporter
+            .GenerateAsync(ct);
+        stream.Position = 0;
+        return File(stream, "text/csv", $"audit-{tenantId}.csv");
+    }
+}
+```
+
+#### Template catalog — centralized report definitions
+
+```csharp
+// ReportTemplates.cs — single source of truth for all report shapes
+public static class ReportTemplates
+{
+    public static readonly ReportTemplate<User> UserDirectory =
+        ReportTemplate.Define<User>("User Directory")
+            .AddColumn("Name", x => x.Name)
+            .AddColumn("Email", x => x.Email)
+            .AddColumn("Department", x => x.Department)
+            .Build();
+
+    public static readonly ReportTemplate<Order> OrderSummary =
+        ReportTemplate.Define<Order>("Order Summary")
+            .AddColumn("Order #", x => x.Id)
+            .AddColumn("Customer", x => x.CustomerName)
+            .AddColumn("Total", x => x.Total)
+            .AddColumn("Status", x => x.Status)
+            .Build();
+}
+
+// Usage anywhere:
+await ReportTemplates.OrderSummary
+    .From(pendingOrders)
+    .ToCsv("pending-orders.csv")
+    .GenerateAsync();
+```
+
+### 7.6 Template vs Builder — When to Use Which
+
+| Scenario | Use `Report.Create()` | Use `ReportTemplate.Define<T>()` |
+|----------|----------------------|----------------------------------|
+| One-off export (ad-hoc query result) | **Yes** | No — overkill |
+| Same columns, different data each time | No — duplication | **Yes** |
+| DI-registered report shapes | Awkward — builders are transient | **Yes** — templates are singletons |
+| Dynamic columns (user picks columns at runtime) | **Yes** — columns built dynamically | No — template columns are fixed at build time |
+| Multi-tenant, per-request reports | Builder per request works but duplicates | **Yes** — template singleton, data per request |
+| Quick scripts / samples | **Yes** — minimal ceremony | No — extra indirection for simple cases |
+
+**Guidance:** If you define the same columns more than once, use a template. If columns vary per invocation, use the builder directly.
+
+### 7.7 Composability: Templates + Additional Columns
+
+A consumer might want a base template plus extra columns for specific reports. The `.From()` method returns a standard `IReportBuilder<T>`, so additional columns can be chained:
+
+```csharp
+var baseTemplate = ReportTemplate.Define<Employee>("Employee Report")
+    .AddColumn("Name", x => x.Name)
+    .AddColumn("Department", x => x.Department)
+    .Build();
+
+// HR adds sensitive columns for their export
+await baseTemplate.From(employees)
+    .AddColumn("Salary", x => x.Salary)       // extra column, not in template
+    .AddColumn("SSN", x => x.MaskedSsn)       // extra column, not in template
+    .ToCsv("hr-employees.csv")
+    .GenerateAsync();
+
+// Public directory uses only the base columns
+await baseTemplate.From(employees)
+    .ToCsv("employee-directory.csv")
+    .GenerateAsync();
+```
+
+This works because `.From()` copies the template's columns into a new builder. The builder is independent — adding columns doesn't affect the template. No mutation, no surprises.
+
+### 7.8 Relationship to the Existing Architecture
+
+```
+EntryPoints:                    Builder:                      Output:
+┌──────────────────────┐        ┌────────────────────┐        ┌──────────────────────┐
+│ Report.Create()      │──────▸ │                    │        │                      │
+│   .From(data)        │        │ IReportBuilder<T>  │──────▸ │ ReportDefinition<T>  │
+│                      │        │                    │        │                      │
+│ ReportTemplate<T>    │──────▸ │                    │        │                      │
+│   .From(data)        │        └────────────────────┘        └──────────┬───────────┘
+└──────────────────────┘                                                 │
+                                                                         ▼
+                                                              IReportExporter.ExportAsync()
+```
+
+Both entry points converge on `IReportBuilder<T>`. Templates don't introduce a parallel pipeline — they're a factory for pre-configured builders. The exporter layer is completely unaware of whether the definition came from a builder or a template. `ReportDefinition<T>` is the only type exporters see.
+
+### 7.9 MVP Timing
+
+**Recommendation: Include in MVP-1.**
+
+The implementation is ~60 lines of code across 3 types (`ReportTemplate<T>`, `IReportTemplateBuilder<T>`, `ReportTemplateBuilder<T>`). It introduces zero new dependencies, zero changes to the exporter pipeline, and zero changes to `ReportDefinition<T>`. The risk is near-zero and the value is immediate:
+
+- Demonstrates architectural maturity in a pre-release library
+- Gives early adopters a reason to recommend the library ("it respects reuse")
+- Tests naturally — template builds are pure, deterministic, and side-effect-free
+
+If scope pressure forces a cut, templates are the safest deferral because the builder API works standalone. But the cost of including it is so low that deferral isn't justified.
+
+---
+
+## 8. Appendix: Decision Log
 
 This log captures architectural decisions with status and rationale for future reference.
 
@@ -1059,3 +1428,4 @@ This log captures architectural decisions with status and rationale for future r
 | ADR-010 | `ReportGen.Core` has zero third-party dependencies | **Accepted** | Core is the foundation package. Forcing any transitive dependency on it forces that dependency on every consumer and every custom exporter author. |
 | ADR-011 | Domain events use `abstract record` base, not marker interfaces | **Accepted** | Records provide value equality and immutability. Abstract base type allows shared properties (`JobId`, `Timestamp`) without repetition. Pattern matching works naturally on the type hierarchy. |
 | ADR-012 | Delivery accepts `Stream` not `byte[]` | **Accepted** | Supports large reports without full memory materialization. `Stream` is the natural interop type for SMTP, HTTP, and cloud storage APIs. |
+| ADR-013 | ReportTemplate as reusable shape definition | **Accepted** | Separates shape (columns) from data and execution. Templates are immutable singletons safe for DI and concurrent use. ~60 lines of code, zero impact on exporter pipeline. Alternatives: (a) no template — consumers duplicate column definitions everywhere; (b) template carries exporters — rejected because export targets are per-invocation, not per-shape. |
