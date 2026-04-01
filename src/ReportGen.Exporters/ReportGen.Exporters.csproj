@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>ReportGen.Exporters</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Description>CSV and Excel exporters for the ReportGen report generation library.</Description>
+    <PackageTags>reporting;csv;excel;closedxml;csvhelper;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ReportGen.Core\ReportGen.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CsvHelper" Version="33.*" />
+    <PackageReference Include="ClosedXML" Version="0.102.*" />
+  </ItemGroup>
+
+</Project>

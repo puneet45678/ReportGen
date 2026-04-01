@@ -1,27 +1,30 @@
 # ReportGen
 
-A modular, extensible .NET report generation library with a fluent builder API.
+A modular, extensible .NET 8 report generation library with a fluent builder API.
 
-Current focus: CSV + Excel exports for v0.1.0-alpha, with future support for PDF, email delivery, and event-driven workers.
+[![CI](https://github.com/puneet45678/ReportGen/actions/workflows/ci.yml/badge.svg)](https://github.com/puneet45678/ReportGen/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Why ReportGen?
 
 Most teams need the same report capabilities repeatedly:
 - Build tabular reports from object collections
-- Export to multiple formats
+- Export to multiple formats (CSV, Excel — more coming)
 - Keep the API simple and strongly typed
 - Extend delivery/execution later (email, queue workers)
 
 ReportGen provides this with a clean fluent API and package-first developer experience.
 
-## Installation (Planned for v0.1.0-alpha)
+## Installation
 
 ```bash
-dotnet add package ReportGen.Core --prerelease
-dotnet add package ReportGen.Exporters --prerelease
+dotnet add package ReportGen.Core --version 0.1.0-alpha
+dotnet add package ReportGen.Exporters --version 0.1.0-alpha
 ```
 
-## Quickstart (Target API)
+## Quick Start
+
+### Fluent builder (full control)
 
 ```csharp
 using ReportGen.Core;
@@ -34,66 +37,107 @@ var users = new[]
 };
 
 await Report.Create("User Performance")
+    .From(users)                              // bind data first — T is inferred
     .AddColumn("Name", x => x.Name)
     .AddColumn("Email", x => x.Email)
     .AddColumn("Score", x => x.Score)
-    .From(users)
-    .ExportCsvAsync("./reports/users.csv")
-    .ExportExcelAsync("./reports/users.xlsx");
+    .ToCsv("./reports/users.csv")
+    .ToExcel("./reports/users.xlsx")
+    .GenerateAsync();
 ```
 
-Note: This is the intended public API and may evolve until the first alpha is published.
+### Attribute-based columns (less boilerplate)
+
+```csharp
+public class Employee
+{
+    [ReportColumn("Employee Name", Order = 0)]
+    public string Name { get; set; } = "";
+
+    [ReportColumn("Email", Order = 1)]
+    public string Email { get; set; } = "";
+
+    public string InternalId { get; set; } = "";  // excluded — no attribute
+}
+
+await Report.Create("Team Report")
+    .From(employees)
+    .AddColumnsFromAttributes()                    // discovers [ReportColumn] properties
+    .ToCsv("team.csv")
+    .GenerateAsync();
+```
+
+### Reusable templates
+
+```csharp
+var salesTemplate = ReportTemplate<Sale>.Define("Sales Report")
+    .AddColumn("Product", x => x.Product)
+    .AddColumn("Revenue", x => x.Revenue)
+    .Build();
+
+// Use with different data each time
+await salesTemplate.From(marchData).ToCsv("march.csv").GenerateAsync();
+await salesTemplate.From(aprilData, "April Sales").ToExcel("april.xlsx").GenerateAsync();
+```
+
+## Packages
+
+| Package | Description | Dependencies |
+|---|---|---|
+| **ReportGen.Core** | Contracts, fluent builder, templates, attribute discovery | None |
+| **ReportGen.Exporters** | CSV + Excel exporters | CsvHelper, ClosedXML |
 
 ## Roadmap
 
-### Prerequisites
-- [x] Repo initialized
+### v0.1.0-alpha (MVP-1) — current
+- [x] Core contracts and fluent builder
+- [x] Attribute-based column discovery
+- [x] Reusable report templates
+- [x] CSV exporter (CsvHelper)
+- [x] Excel exporter (ClosedXML)
+- [x] Unit tests
 - [x] CI pipeline
-- [x] Contributing guide + templates
-- [x] Notion project tracker
-
-### MVP-1 (v0.1.0-alpha)
-- [ ] Core contracts and fluent builder
-- [ ] CSV exporter
-- [ ] Excel exporter (ClosedXML)
-- [ ] Unit tests (target 70%+)
-- [ ] NuGet prerelease publish
+- [ ] NuGet publish
 
 ### MVP-2
+- [ ] Multi-sheet workbook support
 - [ ] Delivery abstraction (IReportDelivery)
 - [ ] In-memory queue + worker (IReportJobQueue)
 - [ ] Domain events (ReportRequested, ReportGenerated, ReportFailed)
 
 ### v2.0
+- [ ] PDF exporter
 - [ ] Email delivery (MailKit)
 - [ ] Azure Service Bus / RabbitMQ adapters
 
-## Project Structure (Planned)
+## Project Structure
 
 ```text
 ReportGen/
 ├── src/
-│   ├── ReportGen.Core/
-│   └── ReportGen.Exporters/
+│   ├── ReportGen.Core/          # Zero-dependency contracts & builder
+│   └── ReportGen.Exporters/     # CSV + Excel implementations
 ├── tests/
-│   └── ReportGen.Tests/
+│   └── ReportGen.Tests/         # xUnit + FluentAssertions
 ├── samples/
-│   └── BasicUsage/
-└── .github/workflows/
+│   └── BasicUsage/              # Working console demo
+├── docs/
+│   ├── ARCHITECTURE.md          # Design decisions & ADRs
+│   └── CONTRACT-DESIGN-GUIDE.md # Deep-dive into every contract
+└── .github/workflows/ci.yml
 ```
 
 ## Tech Stack
 
-- .NET 6+ / .NET 8
-- C#
+- .NET 8 / C# 12
 - ClosedXML (Excel)
 - CsvHelper (CSV)
 - xUnit + FluentAssertions
 
 ## Contributing
 
-See CONTRIBUTING.md.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT
+[MIT](LICENSE)

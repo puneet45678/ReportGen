@@ -33,6 +33,19 @@ packages/
 *.nupkg
 *.snupkg
 
+# dotnet pack output
+artifacts/
+
+# Publish output
+publish/
+[Pp]ublish/
+
+# .NET secrets
+*.pfx
+secrets.json
+appsettings.*.json
+!appsettings.json
+
 # IDE
 .idea/
 .vscode/

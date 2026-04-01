@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>ReportGen.Core</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Description>Core contracts, fluent builder, and abstractions for the ReportGen report generation library.</Description>
+    <PackageTags>reporting;csv;excel;fluent-api;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>
