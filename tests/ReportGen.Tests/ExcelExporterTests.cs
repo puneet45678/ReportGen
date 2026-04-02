@@ -45,8 +45,15 @@ public class ExcelExporterTests : IDisposable
     [Fact]
     public void Ctor_NullPath_Throws()
     {
-        var act = () => new ExcelExporter(null!);
+        var act = () => new ExcelExporter((string)null!);
         act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Ctor_NullStream_Throws()
+    {
+        var act = () => new ExcelExporter((Stream)null!);
+        act.Should().Throw<ArgumentNullException>();
     }
 
     // ---- Export behaviour ----
@@ -236,6 +243,108 @@ public class ExcelExporterTests : IDisposable
 
         File.Exists(csvPath).Should().BeTrue();
         File.Exists(xlsxPath).Should().BeTrue();
+    }
+
+    // ---- Stream constructor ----
+
+    [Fact]
+    public async Task ExportAsync_ToStream_WritesValidXlsx()
+    {
+        using var ms = new MemoryStream();
+        var def = BuildDefinition();
+
+        await new ExcelExporter(ms).ExportAsync(def);
+
+        ms.Position = 0;
+        using var wb = new XLWorkbook(ms);
+        var ws = wb.Worksheets.First();
+        ws.Cell(1, 1).GetString().Should().Be("Name");
+        ws.Cell(2, 1).GetString().Should().Be("Widget");
+    }
+
+    [Fact]
+    public async Task ExportAsync_ToStream_DoesNotCloseStream()
+    {
+        using var ms = new MemoryStream();
+        var def = BuildDefinition();
+
+        await new ExcelExporter(ms).ExportAsync(def);
+
+        ms.CanRead.Should().BeTrue("stream should remain open after export");
+    }
+
+    [Fact]
+    public async Task FluentApi_ToExcelStream_WritesContent()
+    {
+        using var ms = new MemoryStream();
+
+        await Report.Create("StreamFluent")
+            .From(SampleData)
+            .AddColumn("Name", x => x.Name)
+            .ToExcel(ms)
+            .GenerateAsync();
+
+        ms.Length.Should().BeGreaterThan(0);
+    }
+
+    // ---- SetCellValue type coverage ----
+
+    [Fact]
+    public async Task ExportAsync_HandlesExtendedNumericTypes()
+    {
+        var data = new[] { new { S = (short)7, U = (uint)999u, B = (byte)42 } };
+        var def = Report.Create("Numeric")
+            .From(data)
+            .AddColumn("Short", x => x.S)
+            .AddColumn("Uint", x => x.U)
+            .AddColumn("Byte", x => x.B)
+            .Build();
+
+        var path = TempFile("numeric.xlsx");
+        await new ExcelExporter(path).ExportAsync(def);
+
+        using var wb = new XLWorkbook(path);
+        var ws = wb.Worksheets.First();
+        ws.Cell(2, 1).GetValue<int>().Should().Be(7);
+        ws.Cell(2, 2).GetValue<long>().Should().Be(999L);
+        ws.Cell(2, 3).GetValue<int>().Should().Be(42);
+    }
+
+    [Fact]
+    public async Task ExportAsync_HandlesDateOnlyAndTimeOnly()
+    {
+        var data = new[] { new { D = new DateOnly(2026, 4, 2), T = new TimeOnly(14, 30, 0) } };
+        var def = Report.Create("Dates")
+            .From(data)
+            .AddColumn("Date", x => x.D)
+            .AddColumn("Time", x => x.T)
+            .Build();
+
+        var path = TempFile("dates.xlsx");
+        await new ExcelExporter(path).ExportAsync(def);
+
+        using var wb = new XLWorkbook(path);
+        var ws = wb.Worksheets.First();
+        ws.Cell(2, 1).GetValue<DateTime>().Should().Be(new DateTime(2026, 4, 2));
+        ws.Cell(2, 2).GetValue<DateTime>().Should().Be(DateTime.Today.AddHours(14).AddMinutes(30));
+    }
+
+    [Fact]
+    public async Task ExportAsync_HandlesGuid()
+    {
+        var id = Guid.NewGuid();
+        var data = new[] { new { Id = id } };
+        var def = Report.Create("Guids")
+            .From(data)
+            .AddColumn("Id", x => x.Id)
+            .Build();
+
+        var path = TempFile("guids.xlsx");
+        await new ExcelExporter(path).ExportAsync(def);
+
+        using var wb = new XLWorkbook(path);
+        var ws = wb.Worksheets.First();
+        ws.Cell(2, 1).GetString().Should().Be(id.ToString());
     }
 
     // ---- Helper ----

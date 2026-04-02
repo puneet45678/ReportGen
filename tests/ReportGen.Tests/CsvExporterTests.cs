@@ -44,8 +44,15 @@ public class CsvExporterTests : IDisposable
     [Fact]
     public void Ctor_NullPath_Throws()
     {
-        var act = () => new CsvExporter(null!);
+        var act = () => new CsvExporter((string)null!);
         act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Ctor_NullStream_Throws()
+    {
+        var act = () => new CsvExporter((Stream)null!);
+        act.Should().Throw<ArgumentNullException>();
     }
 
     // ---- Export behaviour ----
@@ -149,6 +156,48 @@ public class CsvExporterTests : IDisposable
         var act = () => new CsvExporter(path).ExportAsync(def, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    // ---- Stream constructor ----
+
+    [Fact]
+    public async Task ExportAsync_ToStream_WritesCorrectContent()
+    {
+        using var ms = new MemoryStream();
+        var def = BuildDefinition();
+
+        await new CsvExporter(ms).ExportAsync(def);
+
+        ms.Position = 0;
+        var content = await new StreamReader(ms).ReadToEndAsync();
+        content.Should().Contain("Name,Email,Score");
+        content.Should().Contain("Ava,ava@co.com,92");
+        content.Should().Contain("Noah,noah@co.com,88");
+    }
+
+    [Fact]
+    public async Task ExportAsync_ToStream_DoesNotCloseStream()
+    {
+        using var ms = new MemoryStream();
+        var def = BuildDefinition();
+
+        await new CsvExporter(ms).ExportAsync(def);
+
+        ms.CanRead.Should().BeTrue("stream should remain open after export");
+    }
+
+    [Fact]
+    public async Task FluentApi_ToCsvStream_WritesContent()
+    {
+        using var ms = new MemoryStream();
+
+        await Report.Create("StreamFluent")
+            .From(SampleData)
+            .AddColumn("Name", x => x.Name)
+            .ToCsv(ms)
+            .GenerateAsync();
+
+        ms.Length.Should().BeGreaterThan(0);
     }
 
     // ---- End-to-end via fluent API ----

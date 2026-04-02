@@ -10,7 +10,8 @@ namespace ReportGen.Exporters;
 /// </summary>
 public sealed class CsvExporter : IReportExporter
 {
-    private readonly string _filePath;
+    private readonly string? _filePath;
+    private readonly Stream? _stream;
 
     /// <summary>
     /// Creates a CSV exporter that writes to the specified file path.
@@ -22,14 +23,32 @@ public sealed class CsvExporter : IReportExporter
         _filePath = filePath;
     }
 
+    /// <summary>
+    /// Creates a CSV exporter that writes to the provided stream.
+    /// The caller retains ownership of and is responsible for disposing the stream.
+    /// </summary>
+    /// <param name="stream">Destination stream. Must be writable.</param>
+    public CsvExporter(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        _stream = stream;
+    }
+
     /// <inheritdoc />
     public async Task ExportAsync<T>(ReportDefinition<T> report, CancellationToken cancellationToken = default)
     {
-        var directory = Path.GetDirectoryName(_filePath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
+        if (_filePath is not null)
+        {
+            var directory = Path.GetDirectoryName(_filePath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+        }
 
-        await using var writer = new StreamWriter(_filePath, append: false, Encoding.UTF8);
+        var writer = _filePath is not null
+            ? new StreamWriter(_filePath, append: false, Encoding.UTF8)
+            : new StreamWriter(_stream!, Encoding.UTF8, bufferSize: 1024, leaveOpen: true);
+
+        await using var _ = writer;
         await using var csv = new CsvWriter(writer, CultureInfo.InvariantCulture);
 
         // Header row

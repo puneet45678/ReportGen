@@ -8,7 +8,8 @@ namespace ReportGen.Exporters;
 /// </summary>
 public sealed class ExcelExporter : IReportExporter
 {
-    private readonly string _filePath;
+    private readonly string? _filePath;
+    private readonly Stream? _stream;
 
     /// <summary>
     /// Creates an Excel exporter that writes to the specified .xlsx file path.
@@ -20,12 +21,26 @@ public sealed class ExcelExporter : IReportExporter
         _filePath = filePath;
     }
 
+    /// <summary>
+    /// Creates an Excel exporter that writes to the provided stream.
+    /// The caller retains ownership of and is responsible for disposing the stream.
+    /// </summary>
+    /// <param name="stream">Destination stream. Must be writable and seekable.</param>
+    public ExcelExporter(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        _stream = stream;
+    }
+
     /// <inheritdoc />
     public async Task ExportAsync<T>(ReportDefinition<T> report, CancellationToken cancellationToken = default)
     {
-        var directory = Path.GetDirectoryName(_filePath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
+        if (_filePath is not null)
+        {
+            var directory = Path.GetDirectoryName(_filePath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+        }
 
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add(SanitizeSheetName(report.Title));
@@ -54,8 +69,13 @@ public sealed class ExcelExporter : IReportExporter
         worksheet.Columns().AdjustToContents();
 
         // ClosedXML SaveAs is synchronous — offload to avoid blocking the caller
-        await Task.Run(() => workbook.SaveAs(_filePath), cancellationToken)
-            .ConfigureAwait(false);
+        await Task.Run(() =>
+        {
+            if (_filePath is not null)
+                workbook.SaveAs(_filePath);
+            else
+                workbook.SaveAs(_stream!);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static string SanitizeSheetName(string title)
@@ -80,7 +100,13 @@ public sealed class ExcelExporter : IReportExporter
             float f => f,
             DateTime dt => dt,
             DateTimeOffset dto => dto.DateTime,
+            DateOnly date => date.ToDateTime(TimeOnly.MinValue),
+            TimeOnly time => DateTime.Today.Add(time.ToTimeSpan()),
             bool b => b,
+            short sh => (int)sh,
+            uint u => (long)u,
+            byte by => (int)by,
+            Guid g => g.ToString(),
             _ => value.ToString() ?? string.Empty
         };
     }
