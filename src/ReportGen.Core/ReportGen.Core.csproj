@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>ReportGen.Core</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>0.1.0</Version>
     <Description>Core contracts, fluent builder, and abstractions for the ReportGen report generation library.</Description>
     <PackageTags>reporting;csv;excel;fluent-api;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

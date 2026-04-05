@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>ReportGen.Exporters</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>0.1.0</Version>
     <Description>CSV and Excel exporters for the ReportGen report generation library.</Description>
     <PackageTags>reporting;csv;excel;closedxml;csvhelper;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

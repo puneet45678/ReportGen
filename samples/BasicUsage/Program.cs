@@ -1,55 +1,19 @@
-﻿using ReportGen.Core;
-using ReportGen.Exporters;
+﻿using BasicUsage;
 
-// --- Sample data ---
-var users = new[]
-{
-    new { Name = "Ava", Email = "ava@company.com", Score = 92 },
-    new { Name = "Noah", Email = "noah@company.com", Score = 88 },
-    new { Name = "Mia", Email = "mia@company.com", Score = 95 }
-};
+Console.WriteLine("ReportGen — Sample Runner");
+Console.WriteLine("Output files are written to ./reports/");
+Directory.CreateDirectory("./reports");
 
-// =================================================
-// Example 1: One-off report via fluent builder
-// =================================================
-Console.WriteLine("Example 1: One-off builder");
+var sw = System.Diagnostics.Stopwatch.StartNew();
 
-await Report.Create("User Performance")
-    .From(users)
-    .AddColumn("Name", x => x.Name)
-    .AddColumn("Email", x => x.Email)
-    .AddColumn("Score", x => x.Score)
-    .ToCsv("./reports/users.csv")
-    .ToExcel("./reports/users.xlsx")
-    .GenerateAsync();
+await Demo1_FluentBuilder.RunAsync();
+await Demo2_Template.RunAsync();
+await Demo3_AttributeDiscovery.RunAsync();
+await Demo4_StreamExport.RunAsync();
+await Demo5_EdgeCases.RunAsync();
 
-Console.WriteLine("  → reports/users.csv written");
-Console.WriteLine("  → reports/users.xlsx written");
-
-// =================================================
-// Example 2: Reusable template
-// =================================================
-Console.WriteLine("\nExample 2: Reusable template");
-
-var template = ReportTemplate<(string Name, string Email, int Score)>
-    .Define("User Scores")
-    .AddColumn("Name", x => x.Name)
-    .AddColumn("Email", x => x.Email)
-    .AddColumn("Score", x => x.Score)
-    .Build();
-
-var batch1 = new[] { (Name: "Ava", Email: "ava@co.com", Score: 92) };
-var batch2 = new[] { (Name: "Noah", Email: "noah@co.com", Score: 88) };
-
-await template.From(batch1, "Scores — Batch 1")
-    .ToCsv("./reports/batch1.csv")
-    .GenerateAsync();
-
-await template.From(batch2, "Scores — Batch 2")
-    .ToCsv("./reports/batch2.csv")
-    .GenerateAsync();
-
-Console.WriteLine("  → reports/batch1.csv written");
-Console.WriteLine("  → reports/batch2.csv written");
-
-Console.WriteLine("\nDone.");
+sw.Stop();
+Console.WriteLine($"\n════════════════════════════════════════════");
+Console.WriteLine($" All demos complete in {sw.ElapsedMilliseconds} ms");
+Console.WriteLine($" Reports written to: {Path.GetFullPath("./reports")}");
+Console.WriteLine($"════════════════════════════════════════════");

@@ -18,8 +18,8 @@ ReportGen provides this with a clean fluent API and package-first developer expe
 ## Installation
 
 ```bash
-dotnet add package ReportGen.Core --version 0.1.0-alpha
-dotnet add package ReportGen.Exporters --version 0.1.0-alpha
+dotnet add package ReportGen.Core --version 0.1.0
+dotnet add package ReportGen.Exporters --version 0.1.0
 ```
 
 ## Quick Start
@@ -80,6 +80,27 @@ await salesTemplate.From(marchData).ToCsv("march.csv").GenerateAsync();
 await salesTemplate.From(aprilData, "April Sales").ToExcel("april.xlsx").GenerateAsync();
 ```
 
+### Export to a stream (ASP.NET downloads, memory, S3, ...)
+
+```csharp
+// In-memory — useful for email attachments, S3 uploads, tests
+using var ms = new MemoryStream();
+await Report.Create("Export")
+    .From(data)
+    .AddColumn("Name", x => x.Name)
+    .ToCsv(ms)           // or .ToExcel(ms)
+    .GenerateAsync();
+
+// ASP.NET — stream directly to browser, no temp file
+Response.ContentType = "text/csv";
+Response.Headers["Content-Disposition"] = "attachment; filename=report.csv";
+await Report.Create("Export")
+    .From(data)
+    .AddColumn("Name", x => x.Name)
+    .ToCsv(Response.Body)
+    .GenerateAsync();
+```
+
 ## Packages
 
 | Package | Description | Dependencies |
@@ -89,20 +110,25 @@ await salesTemplate.From(aprilData, "April Sales").ToExcel("april.xlsx").Generat
 
 ## Roadmap
 
-### v0.1.0-alpha (MVP-1) — current
+### v0.1.0 — current
 - [x] Core contracts and fluent builder
 - [x] Attribute-based column discovery
 - [x] Reusable report templates
-- [x] CSV exporter (CsvHelper)
-- [x] Excel exporter (ClosedXML)
-- [x] Unit tests
+- [x] CSV exporter — file path and stream (CsvHelper)
+- [x] Excel exporter — file path and stream (ClosedXML)
+- [x] Full .NET 8 type support (DateOnly, TimeOnly, Guid, short, uint, byte)
+- [x] 73 tests (unit + integration)
 - [x] CI pipeline
-- [ ] NuGet publish
+- [x] NuGet publish
 
-### MVP-2
+### v0.2.0
+- [ ] Dynamic column selection from a registry (whitelist-based, frontend-safe)
+- [ ] CultureInfo support on exporters (number/date formatting per locale)
 - [ ] Multi-sheet workbook support
-- [ ] Delivery abstraction (IReportDelivery)
-- [ ] In-memory queue + worker (IReportJobQueue)
+
+### v1.0.0
+- [ ] PDF exporter
+- [ ] Delivery abstraction (IReportDelivery — email, S3, Azure Blob)
 - [ ] Domain events (ReportRequested, ReportGenerated, ReportFailed)
 
 ### v2.0
