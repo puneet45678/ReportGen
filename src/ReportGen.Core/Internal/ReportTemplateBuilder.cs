@@ -13,10 +13,13 @@ internal sealed class ReportTemplateBuilder<T> : IReportTemplateBuilder<T>
     internal ReportTemplateBuilder(string title) => _title = title;
 
     public IReportTemplateBuilder<T> AddColumn(string header, Func<T, object?> accessor)
+        => AddColumn(header, accessor, excelFormat: null);
+
+    public IReportTemplateBuilder<T> AddColumn(string header, Func<T, object?> accessor, string? excelFormat)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(header);
         ArgumentNullException.ThrowIfNull(accessor);
-        _columns.Add(new ColumnDefinition<T>(header, accessor, _columnOrder++));
+        _columns.Add(new ColumnDefinition<T>(header, accessor, _columnOrder++, excelFormat));
         return this;
     }
 

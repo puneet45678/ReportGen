@@ -22,10 +22,13 @@ internal sealed class ReportBuilder<T> : IReportBuilder<T>
     /// Adds columns — can also be called by ReportTemplate.From() to pre-populate.
     /// </summary>
     public IReportBuilder<T> AddColumn(string header, Func<T, object?> accessor)
+        => AddColumn(header, accessor, excelFormat: null);
+
+    public IReportBuilder<T> AddColumn(string header, Func<T, object?> accessor, string? excelFormat)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(header);
         ArgumentNullException.ThrowIfNull(accessor);
-        _columns.Add(new ColumnDefinition<T>(header, accessor, _columnOrder++));
+        _columns.Add(new ColumnDefinition<T>(header, accessor, _columnOrder++, excelFormat));
         return this;
     }
 

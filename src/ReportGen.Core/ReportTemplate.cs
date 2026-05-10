@@ -36,7 +36,7 @@ public sealed class ReportTemplate<T>
         var effectiveTitle = string.IsNullOrWhiteSpace(title) ? Title : title;
         var builder = new Internal.ReportBuilder<T>(effectiveTitle, data);
         foreach (var column in Columns)
-            builder.AddColumn(column.Header, column.Accessor);
+            builder.AddColumn(column.Header, column.Accessor, column.ExcelFormat);
         return builder;
     }
 

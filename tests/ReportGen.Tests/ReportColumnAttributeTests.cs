@@ -134,6 +134,61 @@ public class ReportColumnAttributeTests
             .WithMessage("*[ReportColumn]*");
     }
 
+    // ----- Tests: Format property -----
+
+    private class FormattedDto
+    {
+        [ReportColumn("Price", Order = 0, Format = "$#,##0.00")]
+        public decimal Price { get; set; }
+
+        [ReportColumn("Date", Order = 1, Format = "dd/MM/yyyy")]
+        public DateTime Date { get; set; }
+
+        [ReportColumn("Notes", Order = 2)]
+        public string Notes { get; set; } = "";
+    }
+
+    [Fact]
+    public void AddColumnsFromAttributes_FormatProperty_PropagatedToColumnDefinition()
+    {
+        var data = new[] { new FormattedDto { Price = 9.99m, Date = DateTime.Today, Notes = "ok" } };
+
+        var definition = Report.Create("Test")
+            .From(data)
+            .AddColumnsFromAttributes()
+            .Build();
+
+        definition.Columns[0].ExcelFormat.Should().Be("$#,##0.00");
+        definition.Columns[1].ExcelFormat.Should().Be("dd/MM/yyyy");
+        definition.Columns[2].ExcelFormat.Should().BeNull();
+    }
+
+    [Fact]
+    public void AddColumnsFromAttributes_NoFormat_ExcelFormatIsNull()
+    {
+        var data = new[] { new EmployeeDto { Name = "Ava", Email = "ava@co.com" } };
+
+        var definition = Report.Create("Test")
+            .From(data)
+            .AddColumnsFromAttributes()
+            .Build();
+
+        definition.Columns[0].ExcelFormat.Should().BeNull();
+        definition.Columns[1].ExcelFormat.Should().BeNull();
+    }
+
+    [Fact]
+    public void Template_AddColumnsFromAttributes_FormatPropagated()
+    {
+        var template = ReportTemplate<FormattedDto>.Define("Price Report")
+            .AddColumnsFromAttributes()
+            .Build();
+
+        template.Columns[0].ExcelFormat.Should().Be("$#,##0.00");
+        template.Columns[1].ExcelFormat.Should().Be("dd/MM/yyyy");
+        template.Columns[2].ExcelFormat.Should().BeNull();
+    }
+
     // ----- Tests: Mixed (attributes + manual columns) -----
 
     [Fact]

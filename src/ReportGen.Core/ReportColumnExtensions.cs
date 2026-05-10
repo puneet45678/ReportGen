@@ -15,8 +15,8 @@ public static class ReportColumnExtensions
     public static IReportBuilder<T> AddColumnsFromAttributes<T>(this IReportBuilder<T> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        foreach (var (header, accessor) in DiscoverColumns<T>())
-            builder.AddColumn(header, accessor);
+        foreach (var (header, accessor, format) in DiscoverColumns<T>())
+            builder.AddColumn(header, accessor, format);
         return builder;
     }
 
@@ -28,12 +28,12 @@ public static class ReportColumnExtensions
     public static IReportTemplateBuilder<T> AddColumnsFromAttributes<T>(this IReportTemplateBuilder<T> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        foreach (var (header, accessor) in DiscoverColumns<T>())
-            builder.AddColumn(header, accessor);
+        foreach (var (header, accessor, format) in DiscoverColumns<T>())
+            builder.AddColumn(header, accessor, format);
         return builder;
     }
 
-    private static IEnumerable<(string Header, Func<T, object?> Accessor)> DiscoverColumns<T>()
+    private static IEnumerable<(string Header, Func<T, object?> Accessor, string? Format)> DiscoverColumns<T>()
     {
         var properties = typeof(T)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -57,7 +57,7 @@ public static class ReportColumnExtensions
             var prop = property;
             Func<T, object?> accessor = row => prop.GetValue(row);
 
-            yield return (header, accessor);
+            yield return (header, accessor, attribute.Format);
         }
     }
 }

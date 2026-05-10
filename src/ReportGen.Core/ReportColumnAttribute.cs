@@ -19,6 +19,13 @@ public sealed class ReportColumnAttribute : Attribute
     public int Order { get; set; } = int.MaxValue;
 
     /// <summary>
+    /// Optional Excel number format string applied to data cells for this column.
+    /// Examples: <c>"$#,##0.00"</c>, <c>"dd/MM/yyyy"</c>, <c>"0.00%"</c>, <c>"#,##0"</c>.
+    /// Ignored by CSV exporters. <see langword="null"/> means no format is applied.
+    /// </summary>
+    public string? Format { get; set; }
+
+    /// <summary>
     /// Marks this property as a report column using the property name as the header.
     /// </summary>
     public ReportColumnAttribute() { }

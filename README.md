@@ -80,6 +80,91 @@ await salesTemplate.From(marchData).ToCsv("march.csv").GenerateAsync();
 await salesTemplate.From(aprilData, "April Sales").ToExcel("april.xlsx").GenerateAsync();
 ```
 
+### Excel format strings (number, date, currency)
+
+Pass an Excel format string as the third argument to `AddColumn` — it's applied to every data cell in that column. CSV exporters silently ignore it.
+
+```csharp
+await Report.Create("Financials")
+    .From(orders)
+    .AddColumn("Product",  x => x.Product)
+    .AddColumn("Revenue",  x => x.Revenue,  "$#,##0.00")  // currency
+    .AddColumn("Margin",   x => x.Margin,   "0.00%")      // percentage
+    .AddColumn("Shipped",  x => x.ShippedAt,"dd/MM/yyyy") // date
+    .AddColumn("Units",    x => x.Units,    "#,##0")      // thousands separator
+    .ToExcel("financials.xlsx")
+    .GenerateAsync();
+```
+
+Works the same way on attributes:
+
+```csharp
+public class Order
+{
+    [ReportColumn("Revenue", Order = 0, Format = "$#,##0.00")]
+    public decimal Revenue { get; set; }
+
+    [ReportColumn("Shipped", Order = 1, Format = "dd/MM/yyyy")]
+    public DateOnly ShippedAt { get; set; }
+}
+```
+
+### Culture-aware export
+
+Both `ToCsv` and `ToExcel` accept an optional `CultureInfo` that controls number and date serialization:
+
+```csharp
+using System.Globalization;
+
+// German locale — produces semicolon-delimited CSV (correct for de-DE)
+await Report.Create("Bericht")
+    .From(data)
+    .AddColumn("Preis", x => x.Price)
+    .ToCsv("bericht.csv", new CultureInfo("de-DE"))
+    .GenerateAsync();
+
+// Explicit invariant culture (the default when omitted)
+await Report.Create("Report")
+    .From(data)
+    .AddColumn("Price", x => x.Price)
+    .ToExcel("report.xlsx", CultureInfo.InvariantCulture)
+    .GenerateAsync();
+```
+
+> **Note:** For CSV, the culture's `TextInfo.ListSeparator` sets the delimiter — European locales produce `;` instead of `,`. For Excel, the culture only affects the `ToString()` fallback for unrecognised types; use column-level format strings for locale-specific cell display.
+
+### Multi-sheet Excel workbooks
+
+Use `MultiSheetExcelExporter` to write several typed datasets into a single `.xlsx`, one sheet each:
+
+```csharp
+using ReportGen.Exporters;
+
+await new MultiSheetExcelExporter("annual.xlsx")
+    .AddSheet("Sales", salesData, b => b
+        .AddColumn("Product",  x => x.Product)
+        .AddColumn("Revenue",  x => x.Revenue,  "$#,##0.00")
+        .AddColumn("Units",    x => x.Units,    "#,##0"))
+    .AddSheet("Expenses", expenseData, b => b
+        .AddColumn("Category", x => x.Category)
+        .AddColumn("Amount",   x => x.Amount,   "$#,##0.00")
+        .AddColumn("Date",     x => x.Date,     "dd/MM/yyyy"))
+    .AddSheet("Headcount", staffData, b => b
+        .AddColumn("Team",     x => x.Team)
+        .AddColumn("Count",    x => x.Count))
+    .WriteAsync(cancellationToken);
+```
+
+Each sheet can have a **different row type** — `salesData`, `expenseData`, and `staffData` above are all different `IEnumerable<T>`. Culture can be passed to the constructor and applies to all sheets:
+
+```csharp
+await new MultiSheetExcelExporter("annual.xlsx", new CultureInfo("en-GB"))
+    .AddSheet(...)
+    .WriteAsync();
+```
+
+> **Note:** `MultiSheetExcelExporter` has its own `WriteAsync()` and does not plug into the `.GenerateAsync()` pipeline. Use it when you need a single workbook from multiple sources; use the regular `.ToExcel()` chain for single-sheet exports.
+
 ### Export to a stream (ASP.NET downloads, memory, S3, ...)
 
 ```csharp
@@ -122,9 +207,9 @@ await Report.Create("Export")
 - [x] NuGet publish
 
 ### v0.2.0 — Output quality
-- [ ] Column-level Excel format strings (`"#,##0.00"`, `"dd/MM/yyyy"`, `"$#,##0"`, etc.)
-- [ ] CultureInfo support on exporters (number/date formatting per locale)
-- [ ] Multi-sheet workbook support (multiple `IEnumerable<T>` sources in one `.xlsx`)
+- [x] Column-level Excel format strings (`"#,##0.00"`, `"dd/MM/yyyy"`, `"$#,##0"`, etc.)
+- [x] CultureInfo support on exporters (number/date formatting per locale)
+- [x] Multi-sheet workbook support (multiple `IEnumerable<T>` sources in one `.xlsx`)
 
 ### v0.3.0 — ASP.NET Core integration
 - [ ] `ReportGen.AspNetCore` package — `IActionResult` helpers, `FileResult`, minimal API extensions

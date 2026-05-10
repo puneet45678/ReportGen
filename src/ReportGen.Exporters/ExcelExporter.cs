@@ -1,5 +1,7 @@
+using System.Globalization;
 using ClosedXML.Excel;
 using ReportGen.Core;
+using ReportGen.Exporters.Internal;
 
 namespace ReportGen.Exporters;
 
@@ -10,26 +12,41 @@ public sealed class ExcelExporter : IReportExporter
 {
     private readonly string? _filePath;
     private readonly Stream? _stream;
+    private readonly CultureInfo _culture;
 
     /// <summary>
     /// Creates an Excel exporter that writes to the specified .xlsx file path.
     /// </summary>
     /// <param name="filePath">Destination file path. Directory is created if missing.</param>
-    public ExcelExporter(string filePath)
+    /// <param name="culture">
+    /// Culture used for the ToString() fallback when a cell value is an unrecognised type.
+    /// Defaults to <see cref="CultureInfo.InvariantCulture"/>.
+    /// Note: ClosedXML writes numbers in OOXML as invariant-culture XML regardless of this value.
+    /// For locale-specific number display in Excel cells, set a locale-appropriate
+    /// <see cref="ColumnDefinition{T}.ExcelFormat"/> on the column instead.
+    /// </param>
+    public ExcelExporter(string filePath, CultureInfo? culture = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         _filePath = filePath;
+        _culture = culture ?? CultureInfo.InvariantCulture;
     }
 
     /// <summary>
     /// Creates an Excel exporter that writes to the provided stream.
     /// The caller retains ownership of and is responsible for disposing the stream.
+    /// The stream must be writable and seekable (ClosedXML requirement).
     /// </summary>
-    /// <param name="stream">Destination stream. Must be writable and seekable.</param>
-    public ExcelExporter(Stream stream)
+    /// <param name="stream">Destination stream.</param>
+    /// <param name="culture">
+    /// Culture used for the ToString() fallback on unrecognised types.
+    /// Defaults to <see cref="CultureInfo.InvariantCulture"/>.
+    /// </param>
+    public ExcelExporter(Stream stream, CultureInfo? culture = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         _stream = stream;
+        _culture = culture ?? CultureInfo.InvariantCulture;
     }
 
     /// <inheritdoc />
@@ -43,7 +60,7 @@ public sealed class ExcelExporter : IReportExporter
         }
 
         using var workbook = new XLWorkbook();
-        var worksheet = workbook.Worksheets.Add(SanitizeSheetName(report.Title));
+        var worksheet = workbook.Worksheets.Add(ExcelSheetNameSanitizer.Sanitize(report.Title));
 
         // Header row
         for (var col = 0; col < report.Columns.Count; col++)
@@ -60,9 +77,11 @@ public sealed class ExcelExporter : IReportExporter
             var row = report.Data[rowIdx];
             for (var col = 0; col < report.Columns.Count; col++)
             {
-                var value = report.Columns[col].Accessor(row);
+                var column = report.Columns[col];
                 var cell = worksheet.Cell(rowIdx + 2, col + 1);
-                SetCellValue(cell, value);
+                ExcelCellWriter.SetCellValue(cell, column.Accessor(row), _culture);
+                if (column.ExcelFormat is { Length: > 0 } fmt)
+                    cell.Style.NumberFormat.Format = fmt;
             }
         }
 
@@ -76,38 +95,5 @@ public sealed class ExcelExporter : IReportExporter
             else
                 workbook.SaveAs(_stream!);
         }, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static string SanitizeSheetName(string title)
-    {
-        // Excel sheet names: max 31 chars, no []:*?/\
-        var sanitized = title.Length > 31 ? title[..31] : title;
-        foreach (var c in new[] { '[', ']', ':', '*', '?', '/', '\\' })
-            sanitized = sanitized.Replace(c, '_');
-        return sanitized;
-    }
-
-    private static void SetCellValue(IXLCell cell, object? value)
-    {
-        cell.Value = value switch
-        {
-            null => Blank.Value,
-            string s => s,
-            int i => i,
-            long l => l,
-            double d => d,
-            decimal m => m,
-            float f => f,
-            DateTime dt => dt,
-            DateTimeOffset dto => dto.DateTime,
-            DateOnly date => date.ToDateTime(TimeOnly.MinValue),
-            TimeOnly time => DateTime.Today.Add(time.ToTimeSpan()),
-            bool b => b,
-            short sh => (int)sh,
-            uint u => (long)u,
-            byte by => (int)by,
-            Guid g => g.ToString(),
-            _ => value.ToString() ?? string.Empty
-        };
     }
 }
