@@ -15,12 +15,8 @@
 5. [Exporter Architecture](#5-exporter-architecture)
 6. [MVP-2 Architecture: Delivery & Queue Abstractions](#6-mvp-2-architecture-delivery--queue-abstractions)
 7. [ReportTemplate: Reusable Report Shapes](#7-reporttemplate-reusable-report-shapes)
-8. [NuGet Package Boundary Design](#8-nuget-package-boundary-design)
-9. [Extensibility Map](#9-extensibility-map)
-10. [Error Handling & Validation Strategy](#10-error-handling--validation-strategy)
-11. [Testing Architecture](#11-testing-architecture)
-12. [Integration Guidance for Consumers](#12-integration-guidance-for-consumers)
-13. [Decision Log (ADRs)](#13-decision-log-adrs)
+8. [Upcoming Features — Design Notes](#8-upcoming-features--design-notes)
+9. [Appendix: Decision Log](#9-appendix-decision-log)
 
 ---
 
@@ -1410,7 +1406,194 @@ If scope pressure forces a cut, templates are the safest deferral because the bu
 
 ---
 
-## 8. Appendix: Decision Log
+## 8. Upcoming Features — Design Notes
+
+This section documents the intent and design direction for planned versions so implementation work starts from a shared understanding rather than scratch.
+
+---
+
+### 8.1 v0.2.0 — Output Quality
+
+#### Column-level Excel format strings
+
+**Problem:** `ExcelExporter` currently writes raw CLR values. Dates render as integer serials, currency has no symbol, large numbers have no thousands separator. Any real report exported to Excel looks unprofessional out of the box.
+
+**Design:**
+
+Add an optional `Format` property to `ColumnDefinition<T>` and an overload of `AddColumn` that accepts it:
+
+```csharp
+// Extended ColumnDefinition
+public sealed record ColumnDefinition<T>(
+    string Header,
+    Func<T, object?> Accessor,
+    int Order,
+    string? Format = null);   // Excel number format string, null = default
+
+// New overload on IReportBuilder<T>
+IReportBuilder<T> AddColumn(string header, Func<T, object?> accessor, string? format);
+
+// Usage
+.AddColumn("Revenue",  x => x.Revenue,  "$#,##0.00")
+.AddColumn("Date",     x => x.Date,     "dd/MM/yyyy")
+.AddColumn("Units",    x => x.Units,    "#,##0")
+.AddColumn("Margin",   x => x.Margin,   "0.00%")
+```
+
+`ExcelExporter.SetCellValue` applies `cell.Style.NumberFormat.Format = column.Format` after writing the value. CSV ignores the format string entirely — it is Excel-only metadata.
+
+**What this unblocks:** Any financial, compliance, or operations report that would otherwise look broken in Excel.
+
+#### CultureInfo support on exporters
+
+Pass a `CultureInfo` to `CsvExporter` and `ExcelExporter` constructors (defaulting to `CultureInfo.InvariantCulture`). Affects number and date serialization in CSV; affects ClosedXML locale settings in Excel.
+
+Extension method overloads:
+
+```csharp
+.ToCsv("report.csv", new CultureInfo("fr-FR"))
+.ToExcel("report.xlsx", new CultureInfo("de-DE"))
+```
+
+#### Multi-sheet workbook support
+
+Allow multiple typed datasets to be written into one `.xlsx` file, each on its own worksheet.
+
+```csharp
+await MultiSheetReport.Create("Annual Report")
+    .AddSheet("Sales",     salesData,     salesColumns)
+    .AddSheet("Expenses",  expenseData,   expenseColumns)
+    .AddSheet("Summary",   summaryData,   summaryColumns)
+    .ToExcel("annual-report.xlsx")
+    .GenerateAsync();
+```
+
+**Package boundary:** This lives in `ReportGen.Exporters` — it depends on ClosedXML's workbook API. `ReportGen.Core` gains nothing new; the multi-sheet builder can reference `ReportDefinition<T>` directly. Consider a new entry class (`MultiSheetReport`) rather than modifying `Report`, to avoid breaking the single-sheet builder's type inference.
+
+---
+
+### 8.2 v0.3.0 — ASP.NET Core Integration
+
+**New package:** `ReportGen.AspNetCore`
+
+**Problem:** The most common real-world use case is "user clicks Download, browser gets a file". Right now a consumer must manually wire up `MemoryStream`, `Content-Disposition`, MIME type, and response flushing. This is 8–12 lines of boilerplate per endpoint that every consumer writes slightly differently.
+
+**Design:**
+
+```csharp
+// Minimal API
+app.MapGet("/reports/users.csv", async (IUserRepo repo, CancellationToken ct) =>
+{
+    var data = await repo.GetAllAsync(ct);
+    return await Report.Create("Users")
+        .From(data)
+        .AddColumn("Name", x => x.Name)
+        .AddColumn("Email", x => x.Email)
+        .ToCsvResult("users.csv");          // returns IResult, streams to browser
+});
+
+// Controller
+public async Task<IActionResult> DownloadExcel(CancellationToken ct)
+{
+    var data = await _repo.GetAsync(ct);
+    return await Report.Create("Report")
+        .From(data)
+        .AddColumn("Name", x => x.Name)
+        .ToExcelResult("report.xlsx");      // returns FileStreamResult
+}
+```
+
+Extension methods `ToCsvResult` and `ToExcelResult` return `IResult` / `FileStreamResult` with correct MIME type (`text/csv`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) and `Content-Disposition: attachment` header set automatically.
+
+**Package boundary:** `ReportGen.AspNetCore` references `ReportGen.Core` + `ReportGen.Exporters` + `Microsoft.AspNetCore.Http.Abstractions`. It must not be referenced by Core or Exporters. Consumers who don't use ASP.NET Core never see this package.
+
+---
+
+### 8.3 v0.4.0 — Report Feature Completeness
+
+#### Aggregate / summary rows
+
+**Problem:** Most tabular reports need a footer row — totals, averages, record counts. Currently consumers must append a synthetic row to their data, which pollutes the model type.
+
+**Design:**
+
+```csharp
+await Report.Create("Sales Summary")
+    .From(orders)
+    .AddColumn("Product",  x => x.Product)
+    .AddColumn("Revenue",  x => x.Revenue,  "$#,##0.00")
+    .AddColumn("Units",    x => x.Units,    "#,##0")
+    .AddSummaryRow(cols => new[]
+    {
+        cols["Product"].Set("TOTAL"),
+        cols["Revenue"].Sum(),
+        cols["Units"].Sum()
+    })
+    .ToCsv("sales.csv")
+    .GenerateAsync();
+```
+
+`SummaryRowDefinition` lives in `ReportGen.Core` (no format dependency). Each exporter renders the summary row after the data rows; CSV writes it as a plain row, Excel writes it with bold formatting.
+
+Built-in aggregators: `Sum()`, `Average()`, `Count()`, `Min()`, `Max()`, `Set(value)` (static label). Custom aggregator: `Compute(rows => ...)`.
+
+#### Dynamic column registry
+
+Allow consumers to define a named set of available columns and select a subset at runtime — useful for user-configurable reports and API endpoints where the frontend sends a column list.
+
+```csharp
+var registry = ColumnRegistry.For<Order>()
+    .Register("id",       "Order #",   x => x.Id)
+    .Register("customer", "Customer",  x => x.CustomerName)
+    .Register("total",    "Total",     x => x.Total,  "$#,##0.00")
+    .Register("status",   "Status",    x => x.Status)
+    .Build();
+
+// At request time — selectedColumns comes from query string / frontend
+await Report.Create("Orders")
+    .From(orders)
+    .AddColumnsFromRegistry(registry, selectedColumns)   // ["id", "customer", "total"]
+    .ToCsv("orders.csv")
+    .GenerateAsync();
+```
+
+`ColumnRegistry` lives in `ReportGen.Core`. `AddColumnsFromRegistry` is an extension method on `IReportBuilder<T>`. Unknown column keys throw `ArgumentException` at configuration time (not silently skipped), so frontend bugs surface immediately.
+
+---
+
+### 8.4 v1.0.0 — Stable Release
+
+**PDF exporter** using QuestPDF (free for open-source projects, .NET-native, no native binaries required).
+
+```csharp
+// New package: ReportGen.Exporters.Pdf
+.ToPdf("report.pdf")
+.ToPdf("report.pdf", options => options.PageSize = PageSizes.A4)
+```
+
+Default PDF style: title at top, header row with grey background, alternating row shading, auto-sized columns. Consumer can supply a custom `IPdfReportStyle` to override colors, fonts, and page size.
+
+**API stability commitment:** After v1.0.0, no breaking changes to any public API in `ReportGen.Core` or `ReportGen.Exporters`. Additive changes only. Any breaking change triggers a new major version.
+
+---
+
+### 8.5 v1.x — Delivery & Async Jobs
+
+Design is documented in detail in Section 6 of this document. Key points:
+
+- New packages: `ReportGen.Delivery`, `ReportGen.Delivery.InMemory`, `ReportGen.Delivery.Email`, `ReportGen.Delivery.Azure`
+- `ReportGen.Core` gains zero new types — delivery is strictly additive
+- `IReportDelivery` abstracts the destination (email, blob, filesystem, webhook)
+- `IReportJobQueue` enables background generation via `IHostedService`
+- Domain events (`ReportRequested`, `ReportGenerated`, `ReportFailed`) for observability
+- In-memory queue backed by `System.Threading.Channels` as the default
+- MailKit email delivery and Azure Service Bus / RabbitMQ adapters in separate packages
+
+This work was intentionally moved out of v1.0.0 because it is power-user infrastructure. Most NuGet consumers downloading the library want "generate a file", not a distributed job queue. Keeping delivery out of the v1.0 milestone means the stable API surface is smaller and the 1.0 release ships sooner.
+
+---
+
+## 9. Appendix: Decision Log
 
 This log captures architectural decisions with status and rationale for future reference.
 

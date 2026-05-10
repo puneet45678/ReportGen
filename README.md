@@ -121,18 +121,30 @@ await Report.Create("Export")
 - [x] CI pipeline
 - [x] NuGet publish
 
-### v0.2.0
-- [ ] Dynamic column selection from a registry (whitelist-based, frontend-safe)
+### v0.2.0 — Output quality
+- [ ] Column-level Excel format strings (`"#,##0.00"`, `"dd/MM/yyyy"`, `"$#,##0"`, etc.)
 - [ ] CultureInfo support on exporters (number/date formatting per locale)
-- [ ] Multi-sheet workbook support
+- [ ] Multi-sheet workbook support (multiple `IEnumerable<T>` sources in one `.xlsx`)
 
-### v1.0.0
-- [ ] PDF exporter
-- [ ] Delivery abstraction (IReportDelivery — email, S3, Azure Blob)
-- [ ] Domain events (ReportRequested, ReportGenerated, ReportFailed)
+### v0.3.0 — ASP.NET Core integration
+- [ ] `ReportGen.AspNetCore` package — `IActionResult` helpers, `FileResult`, minimal API extensions
+- [ ] Stream-to-response helpers (no temp files, direct browser download)
+- [ ] `Content-Disposition` / MIME type wired automatically per format
 
-### v2.0
-- [ ] PDF exporter
+### v0.4.0 — Report feature completeness
+- [ ] Aggregate/summary rows (totals, averages, custom footer cells)
+- [ ] Dynamic column selection from a registry (whitelist-based, frontend-safe)
+- [ ] Column visibility / conditional inclusion at generation time
+
+### v1.0.0 — Stable release
+- [ ] PDF exporter (QuestPDF — zero-cost, .NET-native)
+- [ ] Stable API commitment — no breaking changes after this point
+- [ ] Full XML doc coverage on all public APIs
+
+### v1.x — Delivery & async jobs
+- [ ] Delivery abstraction (`IReportDelivery` — email, S3, Azure Blob, filesystem)
+- [ ] Domain events (`ReportRequested`, `ReportGenerated`, `ReportFailed`)
+- [ ] In-memory job queue (`System.Threading.Channels`)
 - [ ] Email delivery (MailKit)
 - [ ] Azure Service Bus / RabbitMQ adapters
 
