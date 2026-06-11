@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using CsvHelper;
 using ReportGen.Core;
+using ReportGen.Exporters.Internal;
 
 namespace ReportGen.Exporters;
 
@@ -85,6 +86,16 @@ public sealed class CsvExporter : IReportExporter
             {
                 csv.WriteField(column.Accessor(row));
             }
+            await csv.NextRecordAsync().ConfigureAwait(false);
+        }
+
+        // Summary row (optional — plain row, no styling in CSV)
+        var summaryValues = SummaryRowRenderer.ComputeValues(report);
+        if (summaryValues is not null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var value in summaryValues)
+                csv.WriteField(value);
             await csv.NextRecordAsync().ConfigureAwait(false);
         }
 

@@ -42,4 +42,18 @@ public interface IReportBuilder<T>
     /// Builds the report definition and executes all registered exporters sequentially.
     /// </summary>
     Task GenerateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a summary (footer) row that is appended after all data rows during export.
+    /// Must be called after all <c>AddColumn</c> calls — columns added after this
+    /// call will not be included in the summary row.
+    /// </summary>
+    /// <param name="configure">
+    /// Builder action — call <c>.Set()</c>, <c>.Sum()</c>, <c>.Average()</c>, etc.
+    /// to define each column's summary cell. Columns not mentioned default to blank.
+    /// </param>
+    /// <returns>The builder, for fluent chaining.</returns>
+    IReportBuilder<T> AddSummaryRow(Action<ISummaryRowBuilder<T>> configure)
+        => throw new NotImplementedException(
+            $"{GetType().Name} does not implement AddSummaryRow.");
 }

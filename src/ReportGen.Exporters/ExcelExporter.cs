@@ -85,6 +85,23 @@ public sealed class ExcelExporter : IReportExporter
             }
         }
 
+        // Summary row (optional)
+        var summaryValues = SummaryRowRenderer.ComputeValues(report);
+        if (summaryValues is not null)
+        {
+            var summaryRowIdx = report.Data.Count + 2; // 1-based; row 1 = header, rows 2..N+1 = data
+            for (var col = 0; col < report.Columns.Count; col++)
+            {
+                var column = report.Columns[col];
+                var cell = worksheet.Cell(summaryRowIdx, col + 1);
+                ExcelCellWriter.SetCellValue(cell, summaryValues[col], _culture);
+                cell.Style.Font.Bold = true;
+                cell.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                if (column.ExcelFormat is { Length: > 0 } fmt)
+                    cell.Style.NumberFormat.Format = fmt;
+            }
+        }
+
         worksheet.Columns().AdjustToContents();
 
         // ClosedXML SaveAs is synchronous — offload to avoid blocking the caller

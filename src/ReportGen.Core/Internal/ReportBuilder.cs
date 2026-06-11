@@ -11,6 +11,7 @@ internal sealed class ReportBuilder<T> : IReportBuilder<T>
     private readonly List<ColumnDefinition<T>> _columns = [];
     private readonly List<IReportExporter> _exporters = [];
     private int _columnOrder;
+    private SummaryRowBuilder<T>? _summaryRowBuilder;
 
     internal ReportBuilder(string title, IEnumerable<T> data)
     {
@@ -39,16 +40,37 @@ internal sealed class ReportBuilder<T> : IReportBuilder<T>
         return this;
     }
 
+    public IReportBuilder<T> AddSummaryRow(Action<ISummaryRowBuilder<T>> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        if (_columns.Count == 0)
+            throw new InvalidOperationException(
+                "AddSummaryRow must be called after at least one AddColumn.");
+
+        _summaryRowBuilder = new SummaryRowBuilder<T>(this, _columns.ToList().AsReadOnly());
+        configure(_summaryRowBuilder);
+        return this;
+    }
+
     public ReportDefinition<T> Build()
     {
         if (_columns.Count == 0)
             throw new InvalidOperationException("At least one column must be defined.");
 
+        var orderedColumns = _columns.OrderBy(c => c.Order).ToList().AsReadOnly();
+        var summaryRow = _summaryRowBuilder?.Build();
+
+        if (summaryRow is not null && summaryRow.Count != orderedColumns.Count)
+            throw new InvalidOperationException(
+                "AddColumn was called after AddSummaryRow. " +
+                "Define all columns before calling AddSummaryRow.");
+
         return new ReportDefinition<T>
         {
-            Title = _title,
-            Columns = _columns.OrderBy(c => c.Order).ToList().AsReadOnly(),
-            Data = _data.ToList().AsReadOnly()
+            Title      = _title,
+            Columns    = orderedColumns,
+            Data       = _data.ToList().AsReadOnly(),
+            SummaryRow = summaryRow
         };
     }
 

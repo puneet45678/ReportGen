@@ -44,6 +44,23 @@ internal sealed class ExcelSheetDescriptor<T> : IExcelSheetDescriptor
             }
         }
 
+        // Summary row (optional)
+        var summaryValues = SummaryRowRenderer.ComputeValues(_definition);
+        if (summaryValues is not null)
+        {
+            var summaryRowIdx = _definition.Data.Count + 2;
+            for (var col = 0; col < _definition.Columns.Count; col++)
+            {
+                var column = _definition.Columns[col];
+                var cell = worksheet.Cell(summaryRowIdx, col + 1);
+                ExcelCellWriter.SetCellValue(cell, summaryValues[col], _culture);
+                cell.Style.Font.Bold = true;
+                cell.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                if (column.ExcelFormat is { Length: > 0 } fmt)
+                    cell.Style.NumberFormat.Format = fmt;
+            }
+        }
+
         worksheet.Columns().AdjustToContents();
     }
 }

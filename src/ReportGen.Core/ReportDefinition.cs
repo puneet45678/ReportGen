@@ -18,4 +18,11 @@ public sealed record ReportDefinition<T>
 
     /// <summary>UTC timestamp when the definition was built.</summary>
     public DateTimeOffset GeneratedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Optional summary (footer) row appended after all data rows during export.
+    /// <see langword="null"/> means no summary row — exporters skip it entirely.
+    /// When non-null, contains exactly one entry per column, ordered to match <see cref="Columns"/>.
+    /// </summary>
+    public IReadOnlyList<SummaryCellDefinition<T>>? SummaryRow { get; init; }
 }
