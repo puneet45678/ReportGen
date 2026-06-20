@@ -12,6 +12,7 @@ await Demo3_AttributeDiscovery.RunAsync();
 await Demo4_StreamExport.RunAsync();
 await Demo5_EdgeCases.RunAsync();
 await Demo6_SummaryRow.RunAsync();
+await Demo7_PdfExport.RunAsync();
 
 sw.Stop();
 Console.WriteLine($"\n════════════════════════════════════════════");
